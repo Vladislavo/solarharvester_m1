@@ -1,9 +1,12 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <Wire.h>
+#include <SPI.h>
 
 #include <INA226.h>
 #include "MAX17043.h"
+
+#include <U8x8lib.h>
 
 #include "gateway_protocol.h"
 #include "device_control.h"
@@ -29,6 +32,10 @@
 
 #define DEFAULT_SAMPLE_PERIOD               60000 // 1min
 
+#define SSD1306_SCL_PIN     15
+#define SSD1306_SDA_PIN     4
+#define SSD1306_RST_PIN     16
+
 typedef struct {
     uint32_t sample_period; // 1 min default
 } dev_conf_t;
@@ -49,6 +56,8 @@ WiFiUDP clientUDP;
 
 INA226 ina;
 MAX17043 batteryMonitor;
+
+U8X8_SSD1306_128X64_NONAME_SW_I2C u8x8(SSD1306_SCL_PIN, SSD1306_SDA_PIN, SSD1306_RST_PIN);
 
 hw_timer_t *timer = NULL;
 volatile uint8_t sample_flag = 1;
@@ -87,6 +96,11 @@ uint8_t secure_key[GATEWAY_PROTOCOL_SECURE_KEY_SIZE] = { 0x59, 0x51, 0xf9, 0xd2,
 void setup() {
     Serial.begin(BAUDRATE);
     Wire.begin();
+
+    u8x8.begin();
+    u8x8.setFont(u8x8_font_saikyosansbold8_u);
+
+    u8x8.drawString(0, 7, "GETTING WIFI...");
 
     periph_module_reset(PERIPH_WIFI_MODULE);
     WiFi.disconnect(true);
@@ -153,51 +167,79 @@ void loop() {
         
         sensor_data.utc = 0;
 
+        char msg[50];
+        u8x8.clearDisplay();
+
+        u8x8.drawString(0, 7, "DATA UP...");
+
         g_stat = send_sensor_data(&sensor_data);
         
         if (g_stat == GATEWAY_PROTOCOL_STAT_ACK) {
-            ESP_LOGD(TAG, "ACK received");
+            ESP_LOGD(TAG, "ACK");
+
+            u8x8.clearLine(7);
+            u8x8.drawString(0, 7, "ACK received");
         } else if (g_stat == GATEWAY_PROTOCOL_STAT_ACK_PEND) {
             ESP_LOGD(TAG, "ACK_PEND received");
             gateway_protocol_req_pend();
         } else {
             ESP_LOGD(TAG, "NACK %02X", g_stat);
+
+            u8x8.clearLine(7);
+            u8x8.drawString(0, 7, "NACK");
         }
         sample_flag = 0;
+
+        sprintf(msg, "PV V: %.5f V", sensor_data.ina_pv_voltage);
+        
+        Serial.print("Bus voltage:     ");
+        Serial.print(sensor_data.ina_pv_voltage, 5);
+        Serial.println(" V");
+
+        u8x8.drawString(0, 0, msg);
+
+        sprintf(msg, "PV P: %.5f W", sensor_data.ina_pv_power);
+
+        Serial.print("Bus power:       ");
+        Serial.print(sensor_data.ina_pv_power, 5);
+        Serial.println(" W");
+
+        u8x8.drawString(0, 1, msg);
+
+        sprintf(msg, "PV S: %.5f V", sensor_data.ina_shunt_voltage);
+
+        Serial.print("Shunt voltage:   ");
+        Serial.print(sensor_data.ina_shunt_voltage, 5);
+        Serial.println(" V");
+
+        u8x8.drawString(0, 2, msg);
+
+        sprintf(msg, "PV S: %.5f A", sensor_data.ina_shunt_current);
+
+        Serial.print("Shunt current:   ");
+        Serial.print(sensor_data.ina_shunt_current, 5);
+        Serial.println(" A");
+
+        u8x8.drawString(0, 3, msg);
+
+        sprintf(msg, "BAT:  %.3f V", sensor_data.max_battery_voltage);
+
+        Serial.print("Voltage:         ");
+        Serial.print(sensor_data.max_battery_voltage, 4);
+        Serial.println(" V");
+
+        u8x8.drawString(0, 4, msg);
+
+        sprintf(msg, "BAT:  %.3f %%", sensor_data.max_battery_state_of_charge);
+
+        Serial.print("State of charge: ");
+        Serial.print(sensor_data.max_battery_state_of_charge);
+        Serial.println(" %");
+
+        u8x8.drawString(0, 5, msg);
+
+        Serial.println();
     }
-
-
-
-    // Serial.print("Bus voltage:   ");
-    // Serial.print(ina.readBusVoltage(), 5);
-    // Serial.println(" V");
-
-    // Serial.print("Bus power:     ");
-    // Serial.print(ina.readBusPower(), 5);
-    // Serial.println(" W");
-
-
-    // Serial.print("Shunt voltage: ");
-    // Serial.print(ina.readShuntVoltage(), 5);
-    // Serial.println(" V");
-
-    // Serial.print("Shunt current: ");
-    // Serial.print(ina.readShuntCurrent(), 5);
-    // Serial.println(" A");
-
-    // Serial.println();
-
-    // float cellVoltage = batteryMonitor.getVCell();
-    // Serial.print("Voltage:\t\t");
-    // Serial.print(cellVoltage, 4);
-    // Serial.println("V");
-
-    // float stateOfCharge = batteryMonitor.getSoC();
-    // Serial.print("State of charge:\t");
-    // Serial.print(stateOfCharge);
-    // Serial.println("%");
-
-    // delay(1000);
 }
 
 
